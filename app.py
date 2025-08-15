@@ -142,15 +142,18 @@ def normalize_historie_from_editor(edited_df: pd.DataFrame) -> List[Dict[str, An
             continue
 
         d = r.get("datum")
-        if isinstance(d, (datetime, date)):
-            d_str = d.strftime("%Y-%m-%d")
+        # Ondersteun pd.Timestamp, datetime, date en strings/NaT
+        if pd.isna(d):
+            d_str = None
+        elif isinstance(d, (pd.Timestamp, datetime, date)):
+            d_str = pd.to_datetime(d).strftime("%Y-%m-%d")
         else:
             d_str = str(d).strip() if d else None
 
         # km naar int
         km = r.get("km_stand")
         try:
-            km_int = int(km) if km not in (None, "", float("nan")) else None
+            km_int = int(km) if (km is not None and not pd.isna(km) and str(km) != "") else None
         except Exception:
             km_int = None
 
@@ -190,13 +193,19 @@ geavanceerd = st.toggle("Geavanceerde modus (JSON)", value=False,
 onderhoudshistorie: List[Dict[str, Any]] = []
 
 if not geavanceerd:
+    # Maak DataFrame en zet 'datum' expliciet om naar datetime64[ns]
     df_init = pd.DataFrame(_default_rows)
+    df_init["datum"] = pd.to_datetime(df_init["datum"], errors="coerce")
+    # (optioneel) km als integer-achtige kolom
+    df_init["km_stand"] = pd.to_numeric(df_init["km_stand"], errors="coerce")
+
     edited = st.data_editor(
         df_init,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         column_config={
+            # DateColumn verwacht een tijd-achtig dtype; we hebben 'datum' hierboven geconverteerd
             "datum": st.column_config.DateColumn("Datum", format="YYYY-MM-DD"),
             "type": st.column_config.TextColumn("Type"),
             "km_stand": st.column_config.NumberColumn("Kilometerstand", min_value=0, step=500),
