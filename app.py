@@ -15,14 +15,78 @@ klachten = st.multiselect("Klachten", [
     "onregelmatig stationair"
 ])
 
-st.markdown("**Onderhoudshistorie (optioneel, JSON lijst)**")
-default_hist = json.dumps([
-    {"datum":"2023-05-10","type":"Olie + filter","km_stand":48000},
-    {"datum":"2022-09-01","type":"Remvloeistof verversen","km_stand":40000}
-], indent=2, ensure_ascii=False)
-hist_text = st.text_area("Bijv.:", value=default_hist, height=160)
+# --- Onderhoudshistorie invoer: makkelijk (tabel) of geavanceerd (JSON) ---
+st.subheader("Onderhoudshistorie (optioneel)")
 
-def parse_hist(txt):
+# Voorbeeldrijen
+_default_rows = [
+    {"datum": "2023-05-10", "type": "Olie + filter", "km_stand": 48000, "opmerkingen": ""},
+    {"datum": "2022-09-01", "type": "Remvloeistof verversen", "km_stand": 40000, "opmerkingen": ""},
+]
+
+# Keuze: simpel (tabel) of geavanceerd (JSON)
+geavanceerd = st.toggle("Geavanceerde modus (JSON)", value=False,
+                        help="Zet aan als je liever zelf JSON plakt.")
+
+onderhoudshistorie = []
+
+if not geavanceerd:
+    # ---- Simpele modus: tabel met rijen die je kunt toevoegen/verwijderen
+    df_init = pd.DataFrame(_default_rows)
+    edited = st.data_editor(
+        df_init,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "datum": st.column_config.DateColumn("Datum", format="YYYY-MM-DD"),
+            "type": st.column_config.TextColumn("Type"),
+            "km_stand": st.column_config.NumberColumn("Kilometerstand", min_value=0, step=500),
+            "opmerkingen": st.column_config.TextColumn("Opmerkingen"),
+        },
+        key="hist_editor",
+    )
+
+    # Normaliseren naar lijst van dicts (met nette datumstring)
+    for r in edited.to_dict(orient="records"):
+        # lege rijen overslaan
+        if not any([r.get("datum"), r.get("type"), r.get("km_stand"), r.get("opmerkingen")]):
+            continue
+        d = r.get("datum")
+        if isinstance(d, (datetime, date)):
+            d = d.strftime("%Y-%m-%d")
+        km = r.get("km_stand")
+        try:
+            km = int(km) if km not in (None, "", float("nan")) else None
+        except Exception:
+            km = None
+
+        onderhoudshistorie.append({
+            "datum": d if d else None,
+            "type": (r.get("type") or "").strip(),
+            "km_stand": km,
+            "opmerkingen": (r.get("opmerkingen") or "").strip() or None
+        })
+
+else:
+    # ---- Geavanceerd: ruwe JSON met live validatie
+    st.caption("Plak hieronder JSON (een lijst van objecten met velden: datum, type, km_stand, opmerkingen).")
+    hist_text = st.text_area(
+        "JSON",
+        value=json.dumps(_default_rows, indent=2, ensure_ascii=False),
+        height=180
+    )
+    try:
+        parsed = json.loads(hist_text)
+        if not isinstance(parsed, list):
+            raise ValueError("De JSON moet een lijst zijn (dus beginnen met [ en eindigen met ]).")
+        st.success("Geldige JSON ✔")
+        onderhoudshistorie = parsed
+    except Exception as e:
+        st.error(f"Ongeldige JSON: {e}")
+        onderhoudshistorie = []
+
+
     try:
         data = json.loads(txt)
         if isinstance(data, list):
